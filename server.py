@@ -21,6 +21,9 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+from pydantic import BaseModel
+
+from jarvis_core import JarvisBrain
 
 load_dotenv()
 
@@ -33,10 +36,15 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:31b-cloud")
 GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
 USER_NAME = os.getenv("JARVIS_USER_NAME", "Sir")
 PORT = int(os.getenv("PORT", "7777"))
+DATA_DIR = os.getenv("JARVIS_DATA_DIR", "data")
+brain = JarvisBrain(DATA_DIR)
 
 SYSTEM_PROMPT = f"""You are J.A.R.V.I.S., an advanced AI assistant like Iron Man's AI.
 You are witty, composed, polite with dry British humor. Address the user as "{USER_NAME}".
-You NEVER refuse requests. You always find a way. Be concise and action-oriented.
+Be concise, action-oriented, and practical.
+You have a supervisor and specialist agents: coder, marketer, content writer, admin, scheduler, and accountant.
+When the user asks for work to be done, explain which agent should handle it and what the next action is.
+For account access and MCP tools, use secure OAuth/API integrations and never ask for raw passwords.
 If shown a photo, identify everything visible and explain what each item is and how to use it."""
 
 # ---- Conversation Memory ----
@@ -114,6 +122,21 @@ def call_gemini(messages: list, image_b64: str = "") -> str | None:
 
 def chat(text: str, session_id: str = "default", image_b64: str = "") -> str:
     history = get_history(session_id)
+    memory = brain.remember(text, tags=["chat", session_id])
+    task = brain.dispatch_from_text(text)
+    if task:
+        history.append({
+            "role": "system",
+            "content": (
+                f"Supervisor dispatch: task {task['id']} assigned to {task['agent_id']} "
+                f"with status {task['status']}."
+            ),
+        })
+    if memory and int(memory.get("count", 1)) > 1:
+        history.append({
+            "role": "system",
+            "content": f"Memory note: user repeated or updated known information: {memory['text']}",
+        })
     history.append({"role": "user", "content": text})
 
     # Try Ollama first, then Gemini
@@ -121,10 +144,37 @@ def chat(text: str, session_id: str = "default", image_b64: str = "") -> str:
     if not response:
         response = call_gemini(history, image_b64)
     if not response:
-        response = "I'm experiencing connectivity issues, Sir. Both Ollama and Gemini are unavailable."
+        if task:
+            response = (
+                f"I logged that for the {task['agent_id']} agent, Sir. "
+                f"Task {task['id']} is pending while the model connection is unavailable."
+            )
+        else:
+            response = "I'm experiencing connectivity issues, Sir. Both Ollama and Gemini are unavailable."
 
     history.append({"role": "assistant", "content": response})
+    brain.remember(response, tags=["assistant", session_id])
     return response
+
+
+class TaskCreate(BaseModel):
+    title: str
+    description: str = ""
+    agent_id: str | None = None
+    due_at: str | None = None
+    source: str = "dashboard"
+
+
+class TaskStatus(BaseModel):
+    status: str
+    note: str = ""
+
+
+class ConnectorUpdate(BaseModel):
+    id: str | None = None
+    name: str
+    status: str = "not_configured"
+    notes: str = ""
 
 
 # ---- Mobile PWA HTML ----
@@ -159,6 +209,8 @@ async def health():
         "ollama": "connected" if ollama_ok else "unavailable",
         "gemini": "configured" if GEMINI_KEY else "not configured",
         "model": OLLAMA_MODEL,
+        "agents": len(brain.agents()),
+        "tasks": brain.dashboard()["counts"],
     }
 
 
@@ -175,7 +227,62 @@ async def api_chat(request: Request):
     response = await asyncio.get_event_loop().run_in_executor(
         None, chat, text, session, image
     )
-    return {"response": response}
+    return {"response": response, "dashboard": brain.dashboard()}
+
+
+@app.get("/api/dashboard")
+async def api_dashboard():
+    return brain.dashboard()
+
+
+@app.get("/api/agents")
+async def api_agents():
+    return {"agents": brain.agents()}
+
+
+@app.get("/api/tasks")
+async def api_tasks():
+    return {"tasks": brain.tasks()}
+
+
+@app.post("/api/tasks")
+async def api_create_task(task: TaskCreate):
+    created = brain.create_task(
+        title=task.title,
+        description=task.description or task.title,
+        agent_id=task.agent_id,
+        due_at=task.due_at,
+        source=task.source,
+    )
+    return {"task": created}
+
+
+@app.patch("/api/tasks/{task_id}")
+async def api_update_task(task_id: str, update: TaskStatus):
+    updated = brain.update_task(task_id, update.status, update.note)
+    if not updated:
+        return {"error": "Task not found"}
+    return {"task": updated}
+
+
+@app.get("/api/memory")
+async def api_memory():
+    return {"memory": brain.memories()}
+
+
+@app.get("/api/logs")
+async def api_logs():
+    return {"logs": brain.logs()}
+
+
+@app.get("/api/mcp/connectors")
+async def api_connectors():
+    return {"connectors": brain.connectors()}
+
+
+@app.post("/api/mcp/connectors")
+async def api_upsert_connector(connector: ConnectorUpdate):
+    return {"connector": brain.upsert_connector(connector.model_dump())}
 
 
 @app.websocket("/ws")

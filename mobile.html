@@ -52,6 +52,13 @@ box-shadow:0 0 30px #00aa55}
 .orb.listening{animation:orb-pulse .6s infinite}
 @keyframes orb-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
 
+.tabs{display:flex;gap:8px;padding:8px 12px;background:var(--surface);border-bottom:1px solid #171b22}
+.tab{flex:1;padding:8px;border:1px solid #263241;border-radius:8px;background:var(--card);
+color:var(--text);font-size:12px;letter-spacing:1px}
+.tab.active{border-color:var(--cyan);color:var(--cyan)}
+.view{display:none;flex:1;min-height:0}
+.view.active{display:flex;flex-direction:column}
+
 .chat{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px;
 -webkit-overflow-scrolling:touch}
 .msg{max-width:88%;padding:10px 14px;border-radius:16px;font-size:14px;line-height:1.5;
@@ -66,6 +73,27 @@ border:1px solid var(--cyan2);border-bottom-left-radius:4px}
 .msg img{max-width:100%;border-radius:8px;margin-top:6px}
 .msg pre{background:#000;padding:8px;border-radius:6px;overflow-x:auto;font-size:12px;margin-top:6px}
 .msg code{background:#000;padding:2px 4px;border-radius:3px;font-size:13px}
+
+.dashboard{flex:1;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:12px;
+-webkit-overflow-scrolling:touch}
+.dash-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.metric{background:var(--card);border:1px solid #25313f;border-radius:8px;padding:8px;text-align:center}
+.metric b{display:block;color:var(--cyan);font-size:18px}
+.metric span{font-size:10px;color:#8ba6b5;text-transform:uppercase}
+.panel{border-top:1px solid #25313f;padding-top:10px}
+.panel-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.panel h2{font-size:13px;color:var(--cyan);letter-spacing:1px;font-weight:500}
+.mini-btn{padding:6px 10px;background:var(--card);border:1px solid var(--cyan2);
+color:var(--cyan);border-radius:6px;font-size:11px}
+.agent-list,.task-list,.log-list,.memory-list,.connector-list{display:flex;flex-direction:column;gap:8px}
+.agent,.task,.log,.memory,.connector{background:var(--card);border:1px solid #202b38;border-radius:8px;padding:9px}
+.agent strong,.task strong,.connector strong{display:block;color:var(--text);font-size:13px}
+.agent span,.task span,.log,.memory,.connector span{font-size:11px;color:#8ba6b5;line-height:1.4}
+.status-pill{display:inline-block;margin-top:6px;padding:2px 6px;border-radius:999px;background:#0b2c1d;
+color:var(--green);font-size:10px;text-transform:uppercase}
+.task-actions{display:flex;gap:6px;margin-top:8px}
+.task-actions button{flex:1;padding:6px;background:#101820;border:1px solid #27384a;color:var(--text);
+border-radius:6px;font-size:11px}
 
 .input-area{padding:10px 12px;background:var(--surface);border-top:1px solid #222;
 display:flex;gap:8px;align-items:flex-end}
@@ -113,7 +141,50 @@ input[type=file]{display:none}
 
 <div class="orb-container"><div class="orb" id="orb"></div></div>
 
-<div class="chat" id="chat"></div>
+<div class="tabs">
+  <button class="tab active" id="chatTab" onclick="showView('chat')">CHAT</button>
+  <button class="tab" id="dashTab" onclick="showView('dashboard'); loadDashboard()">DASHBOARD</button>
+</div>
+
+<div class="view active" id="chatView">
+  <div class="chat" id="chat"></div>
+</div>
+
+<div class="view" id="dashboardView">
+  <div class="dashboard">
+    <div class="dash-grid">
+      <div class="metric"><b id="countPending">0</b><span>Pending</span></div>
+      <div class="metric"><b id="countRunning">0</b><span>Running</span></div>
+      <div class="metric"><b id="countDone">0</b><span>Done</span></div>
+      <div class="metric"><b id="countError">0</b><span>Error</span></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>AGENTS</h2><button class="mini-btn" onclick="loadDashboard()">Refresh</button></div>
+      <div class="agent-list" id="agentList"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>TASKS</h2></div>
+      <div class="task-list" id="taskList"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>MCP CONNECTORS</h2></div>
+      <div class="connector-list" id="connectorList"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>MEMORY</h2></div>
+      <div class="memory-list" id="memoryList"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>LOGS</h2></div>
+      <div class="log-list" id="logList"></div>
+    </div>
+  </div>
+</div>
 
 <input type="file" id="camInput" accept="image/*" capture="environment" onchange="handlePhoto(event)">
 
@@ -210,7 +281,7 @@ async function checkConnection(){
 
 // ---- LLM via JARVIS server (uses Ollama on PC) ----
 async function callServer(text, imageB64){
-  const body = { text };
+  const body = { text, session: 'mobile' };
   if(imageB64) body.image = imageB64;
 
   const r = await fetch(config.serverUrl + '/api/chat', {
@@ -220,6 +291,7 @@ async function callServer(text, imageB64){
     signal: AbortSignal.timeout(120000)
   });
   const data = await r.json();
+  if(data.dashboard) renderDashboard(data.dashboard);
   return data.response || data.error || 'No response';
 }
 
@@ -300,6 +372,7 @@ async function send(text, imageB64){
   try{
     const response = await chat_llm(text, imageB64);
     addMsg('jarvis', response);
+    loadDashboard(false);
     orb.className = 'orb speaking';
     setState('idle', 'Ready');
     setTimeout(()=>{ orb.className='orb'; }, 2000);
@@ -308,6 +381,97 @@ async function send(text, imageB64){
     setState('idle', 'Error');
     orb.className = 'orb';
   }
+}
+
+function showView(name){
+  document.getElementById('chatView').classList.toggle('active', name === 'chat');
+  document.getElementById('dashboardView').classList.toggle('active', name === 'dashboard');
+  document.getElementById('chatTab').classList.toggle('active', name === 'chat');
+  document.getElementById('dashTab').classList.toggle('active', name === 'dashboard');
+}
+
+function apiBase(){
+  return config.serverUrl || location.origin;
+}
+
+async function loadDashboard(showErrors = true){
+  try{
+    const r = await fetch(apiBase() + '/api/dashboard', {signal: AbortSignal.timeout(8000)});
+    const data = await r.json();
+    renderDashboard(data);
+  }catch(e){
+    if(showErrors) addMsg('system', 'Dashboard unavailable: ' + e.message);
+  }
+}
+
+function renderDashboard(data){
+  if(!data || !data.counts) return;
+  document.getElementById('countPending').textContent = data.counts.pending || 0;
+  document.getElementById('countRunning').textContent = data.counts.running || 0;
+  document.getElementById('countDone').textContent = data.counts.done || 0;
+  document.getElementById('countError').textContent = data.counts.error || 0;
+
+  document.getElementById('agentList').innerHTML = (data.agents || []).map(agent => `
+    <div class="agent">
+      <strong>${escapeHtml(agent.name)}</strong>
+      <span>${escapeHtml(agent.description)}</span>
+      <span class="status-pill">${escapeHtml(agent.status || 'ready')}</span>
+    </div>
+  `).join('') || '<div class="log">No agents configured.</div>';
+
+  const tasks = (data.tasks || []).slice().reverse();
+  document.getElementById('taskList').innerHTML = tasks.map(task => `
+    <div class="task">
+      <strong>${escapeHtml(task.title)}</strong>
+      <span>${escapeHtml(task.agent_id)} | ${escapeHtml(task.status)} | ${formatDate(task.updated_at)}</span>
+      <span>${escapeHtml(task.description || '')}</span>
+      <div class="task-actions">
+        <button onclick="setTaskStatus('${task.id}','running')">Run</button>
+        <button onclick="setTaskStatus('${task.id}','done')">Done</button>
+        <button onclick="setTaskStatus('${task.id}','error')">Error</button>
+      </div>
+    </div>
+  `).join('') || '<div class="log">No tasks yet. Ask JARVIS to build, write, schedule, review, or track something.</div>';
+
+  document.getElementById('connectorList').innerHTML = (data.connectors || []).map(connector => `
+    <div class="connector">
+      <strong>${escapeHtml(connector.name)}</strong>
+      <span>${escapeHtml(connector.status)} - ${escapeHtml(connector.notes || '')}</span>
+    </div>
+  `).join('') || '<div class="log">No MCP connectors recorded.</div>';
+
+  document.getElementById('memoryList').innerHTML = (data.memory || []).slice().reverse().map(memory => `
+    <div class="memory">${escapeHtml(memory.text)}<br><span>seen ${memory.count || 1}x | ${formatDate(memory.updated_at)}</span></div>
+  `).join('') || '<div class="log">Memory is empty.</div>';
+
+  document.getElementById('logList').innerHTML = (data.logs || []).slice().reverse().map(log => `
+    <div class="log">${formatDate(log.created_at)} | ${escapeHtml(log.agent_id)} | ${escapeHtml(log.event)}<br>${escapeHtml(log.detail)}</div>
+  `).join('') || '<div class="log">No logs yet.</div>';
+}
+
+async function setTaskStatus(id, status){
+  try{
+    await fetch(apiBase() + '/api/tasks/' + id, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({status, note: 'Updated from dashboard'})
+    });
+    loadDashboard();
+  }catch(e){
+    addMsg('system', 'Could not update task: ' + e.message);
+  }
+}
+
+function escapeHtml(value){
+  return String(value || '').replace(/[&<>"']/g, ch => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[ch]));
+}
+
+function formatDate(value){
+  if(!value) return '';
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? value : d.toLocaleString();
 }
 
 // ---- Camera ----
@@ -354,6 +518,7 @@ function setState(state, text){
 function autoResize(el){ el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,100)+'px'; }
 
 checkConnection();
+loadDashboard(false);
 if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});
 </script>
 </body>
