@@ -177,6 +177,27 @@ class ConnectorUpdate(BaseModel):
     notes: str = ""
 
 
+class WorkerEvent(BaseModel):
+    worker_id: str = "pc-jarvis"
+    event: str
+    detail: str
+    metadata: dict | None = None
+
+
+class WorkerComplete(BaseModel):
+    status: str = "done"
+    note: str = ""
+    output_path: str | None = None
+
+
+def worker_allowed(request: Request) -> bool:
+    expected = os.getenv("JARVIS_WORKER_TOKEN", "").strip()
+    if not expected:
+        return True
+    auth = request.headers.get("authorization", "")
+    return auth == f"Bearer {expected}"
+
+
 # ---- Mobile PWA HTML ----
 MOBILE_HTML = Path("mobile.html").read_text(encoding="utf-8") if Path("mobile.html").exists() else "<h1>JARVIS</h1>"
 
@@ -283,6 +304,51 @@ async def api_connectors():
 @app.post("/api/mcp/connectors")
 async def api_upsert_connector(connector: ConnectorUpdate):
     return {"connector": brain.upsert_connector(connector.model_dump())}
+
+
+@app.get("/api/worker/tasks")
+async def api_worker_tasks(request: Request, agent_id: str = "", limit: int = 5):
+    if not worker_allowed(request):
+        return {"error": "Unauthorized"}
+    tasks = [
+        task for task in brain.tasks()
+        if task["status"] == "pending" and (not agent_id or task["agent_id"] == agent_id)
+    ]
+    return {"tasks": tasks[:limit]}
+
+
+@app.post("/api/worker/tasks/{task_id}/claim")
+async def api_worker_claim(task_id: str, request: Request, event: WorkerEvent):
+    if not worker_allowed(request):
+        return {"error": "Unauthorized"}
+    task = brain.update_task(task_id, "running", f"{event.worker_id} claimed task. {event.detail}")
+    if not task:
+        return {"error": "Task not found"}
+    brain.log("worker_claim", event.detail, event.worker_id, task_id)
+    return {"task": task}
+
+
+@app.post("/api/worker/tasks/{task_id}/complete")
+async def api_worker_complete(task_id: str, request: Request, complete: WorkerComplete):
+    if not worker_allowed(request):
+        return {"error": "Unauthorized"}
+    note = complete.note
+    if complete.output_path:
+        note = f"{note} Output: {complete.output_path}".strip()
+    task = brain.update_task(task_id, complete.status, note)
+    if not task:
+        return {"error": "Task not found"}
+    return {"task": task}
+
+
+@app.post("/api/worker/activity")
+async def api_worker_activity(request: Request, event: WorkerEvent):
+    if not worker_allowed(request):
+        return {"error": "Unauthorized"}
+    brain.log(event.event, event.detail, event.worker_id)
+    if event.event in {"pc_context", "pc_preference", "pc_activity"}:
+        brain.remember(event.detail, tags=["pc", event.worker_id])
+    return {"ok": True}
 
 
 @app.websocket("/ws")
