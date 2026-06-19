@@ -19,6 +19,22 @@ python server.py
 
 Open `http://localhost:7777`.
 
+## Ollama Codex Model
+
+Default Ollama model:
+
+```bash
+kimi-k2.7-code:cloud
+```
+
+Launch Codex with the same Ollama cloud model:
+
+```bash
+ollama launch codex --model kimi-k2.7-code:cloud
+```
+
+JARVIS uses this model through `OLLAMA_MODEL`. Override it in `.env` or Railway variables when you want a different model.
+
 ## Environment
 
 Copy `env.example` to `.env` or set the same values in Railway.
