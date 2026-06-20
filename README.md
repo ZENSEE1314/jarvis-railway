@@ -74,6 +74,22 @@ Work is saved by default to:
 %USERPROFILE%\Documents\Jarvis Work
 ```
 
+Desktop JARVIS also builds a local brain in:
+
+```text
+%USERPROFILE%\Documents\Jarvis Work\brain
+```
+
+It stores local memory and chat history there, merges repeated memories, and
+uses that data before asking the online AI. Easy tasks run offline, including:
+
+- opening apps, folders, files, and URLs
+- saving notes
+- remembering facts
+- searching local memory
+- answering date/time
+- showing the work folder
+
 Run the desktop app:
 
 ```powershell

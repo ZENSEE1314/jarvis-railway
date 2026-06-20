@@ -14,6 +14,7 @@ import sys
 import threading
 import urllib.parse
 import webbrowser
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -31,23 +32,120 @@ def resource_path(name: str) -> Path:
 DESKTOP_HTML = resource_path("desktop.html")
 
 
+def normalize(value: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", value.lower())).strip()
+
+
+class LocalBrain:
+    def __init__(self, work_dir: Path):
+        self.root = work_dir / "brain"
+        self.root.mkdir(parents=True, exist_ok=True)
+        self.memory_file = self.root / "memory.json"
+        self.chat_file = self.root / "chat_history.json"
+
+    def _read(self, path: Path, default: Any) -> Any:
+        if not path.exists():
+            return default
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return default
+
+    def _write(self, path: Path, data: Any) -> None:
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(path)
+
+    def remember(self, text: str, source: str = "user") -> dict[str, Any] | None:
+        clean = text.strip()
+        if len(clean) < 3:
+            return None
+        key = normalize(clean)[:200]
+        memories = self._read(self.memory_file, [])
+        now = datetime.now().isoformat(timespec="seconds")
+        for item in memories:
+            if item["key"] == key:
+                item["text"] = clean
+                item["source"] = source
+                item["updated_at"] = now
+                item["count"] = int(item.get("count", 1)) + 1
+                self._write(self.memory_file, memories)
+                return item
+        item = {"key": key, "text": clean, "source": source, "created_at": now, "updated_at": now, "count": 1}
+        memories.append(item)
+        self._write(self.memory_file, memories[-2000:])
+        return item
+
+    def log_chat(self, user_text: str, reply: str, mode: str) -> None:
+        history = self._read(self.chat_file, [])
+        history.append(
+            {
+                "created_at": datetime.now().isoformat(timespec="seconds"),
+                "user": user_text,
+                "reply": reply,
+                "mode": mode,
+            }
+        )
+        self._write(self.chat_file, history[-1000:])
+
+    def search(self, query: str, limit: int = 6) -> list[dict[str, Any]]:
+        terms = [term for term in normalize(query).split() if len(term) > 2]
+        memories = self._read(self.memory_file, [])
+        scored = []
+        for item in memories:
+            haystack = item.get("key", "")
+            score = sum(1 for term in terms if term in haystack)
+            if score:
+                scored.append((score, item))
+        scored.sort(key=lambda pair: (pair[0], pair[1].get("updated_at", "")), reverse=True)
+        return [item for _, item in scored[:limit]]
+
+    def recent(self, limit: int = 8) -> list[dict[str, Any]]:
+        return self._read(self.memory_file, [])[-limit:]
+
+
 class DesktopState:
     def __init__(self, server_url: str, token: str, work_dir: Path, speak: bool):
         self.worker_id = os.getenv("JARVIS_WORKER_ID", "pc-jarvis-desktop")
         self.api = JarvisApi(server_url, token)
         self.actions = PcActions(work_dir, speak_enabled=speak)
+        self.brain = LocalBrain(work_dir)
         self.polling = False
         self.poll_thread: threading.Thread | None = None
 
-    def local_action(self, text: str) -> str:
+    def offline_reply(self, text: str) -> tuple[str, bool]:
         lowered = text.lower().strip()
+        self.brain.remember(text, "user")
+
+        if lowered in {"hi", "hello", "hey", "jarvis"}:
+            return "Yes Sir. I am here, listening from your PC.", True
+        if lowered in {"time", "what time is it", "what is the time"}:
+            return f"It is {datetime.now().strftime('%I:%M %p')}.", True
+        if lowered in {"date", "today", "what date is it", "what is today"}:
+            return f"Today is {datetime.now().strftime('%A, %B %d, %Y')}.", True
+
         if re.match(r"^(open|launch|start)\s+", lowered):
-            return self.actions.run_command(text)
-        if lowered in {"open work folder", "show work folder", "where is my work folder"}:
-            return self.actions.run_command("work folder")
-        if re.match(r"^(save note|note)\s+", lowered):
-            return self.actions.run_command(text)
-        return ""
+            return self.actions.run_command(text), True
+        if any(phrase in lowered for phrase in ["open work folder", "show work folder", "where is my work folder"]):
+            return self.actions.run_command("work folder"), True
+        if re.match(r"^(save note|take note|note)\s+", lowered):
+            note_text = re.sub(r"^(save note|take note|note)\s+", "note ", text, flags=re.I)
+            result = self.actions.run_command(note_text)
+            self.brain.remember(text, "note")
+            return f"Saved the note here: {result}", True
+        remember_match = re.match(r"^(remember|remember that)\s+(.+)$", text, flags=re.I)
+        if remember_match:
+            memory = remember_match.group(2).strip()
+            self.brain.remember(memory, "explicit")
+            return f"I will remember: {memory}", True
+        if any(phrase in lowered for phrase in ["what do you remember", "search memory", "find memory", "what did i ask"]):
+            query = re.sub(r"(what do you remember about|what do you remember|search memory|find memory|what did i ask)", "", text, flags=re.I).strip()
+            matches = self.brain.search(query or text) if query else self.brain.recent()
+            if not matches:
+                return "I do not have matching local memory yet.", True
+            lines = [f"- {item['text']} ({item.get('updated_at', '')})" for item in matches]
+            return "Here is what I found in my local brain:\n" + "\n".join(lines), True
+        return "", False
 
     def start_polling(self, interval: int = 20) -> None:
         if self.polling:
@@ -118,15 +216,34 @@ class DesktopHandler(BaseHTTPRequestHandler):
                 response(self, 400, {"error": "No text"})
                 return
 
-            local_result = self.state.local_action(text)
-            data = self.state.api.chat(text)
+            local_reply, handled = self.state.offline_reply(text)
+            if handled:
+                self.state.brain.log_chat(text, local_reply, "offline")
+                try:
+                    self.state.api.activity(self.state.worker_id, "offline_reply", local_reply, {"text": text})
+                except Exception:
+                    pass
+                response(self, 200, {"response": local_reply, "local": True, "mode": "offline"})
+                return
+
+            memory_matches = self.state.brain.search(text, limit=3)
+            memory_context = ""
+            if memory_matches:
+                memory_context = "\n\nLocal memory context:\n" + "\n".join(f"- {item['text']}" for item in memory_matches)
+
+            data = self.state.api.chat(text + memory_context)
             ai_text = data.get("response") or data.get("error") or ""
-            if local_result:
-                ai_text = f"{ai_text}\n\nPC action: {local_result}".strip()
-                self.state.api.activity(self.state.worker_id, "pc_action", local_result, {"text": text})
-            if payload.get("speak"):
-                self.state.actions.say(ai_text)
-            response(self, 200, {"response": ai_text, "local": local_result, "dashboard": data.get("dashboard")})
+            if not ai_text or "Both Ollama and Gemini are unavailable" in ai_text or "connectivity issues" in ai_text:
+                matches = self.state.brain.search(text) or self.state.brain.recent(5)
+                if matches:
+                    ai_text = "I am offline from the online model, but my local brain found:\n" + "\n".join(
+                        f"- {item['text']}" for item in matches
+                    )
+                else:
+                    ai_text = "The online model is unavailable. I saved this to my local brain and can still handle PC actions, notes, memory, files, and reminders."
+            self.state.brain.remember(ai_text, "assistant")
+            self.state.brain.log_chat(text, ai_text, "online")
+            response(self, 200, {"response": ai_text, "local": False, "mode": "online", "dashboard": data.get("dashboard")})
             return
 
         if parsed.path == "/api/speak":
@@ -163,6 +280,10 @@ def main() -> int:
     args = parser.parse_args()
 
     DesktopHandler.state = DesktopState(args.server, args.token, Path(args.work_dir), args.speak)
+    DesktopHandler.state.brain.remember(
+        f"Desktop JARVIS started. Work folder: {DesktopHandler.state.actions.work_dir}",
+        "system",
+    )
     DesktopHandler.state.api.activity(
         DesktopHandler.state.worker_id,
         "desktop_online",
