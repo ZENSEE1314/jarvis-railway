@@ -61,7 +61,7 @@ textarea:focus{border-color:var(--cyan)}button{border:1px solid #1a4968;backgrou
 <script>
 const chat = document.getElementById('chat');
 const input = document.getElementById('input');
-let dashboard = null, lastReply = '', wakeOn = false, conversationActive = false, wakeRecognition = null, wakeRestart = null, wakePaused = false;
+let dashboard = null, lastReply = '', wakeOn = false, conversationActive = false, wakeRecognition = null, wakeRestart = null, wakePaused = false, ignoreUntil = 0;
 const endPhrases = /^(no|no thanks|nothing else|that's all|that is all|done|stop|sleep|go sleep|stand down|bye|goodbye)$/i;
 
 function addMsg(role, text){
@@ -73,6 +73,18 @@ function addMsg(role, text){
 }
 function esc(v){return String(v||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function fmt(v){if(!v)return ''; const d=new Date(v); return isNaN(d)?v:d.toLocaleString();}
+function norm(v){return String(v||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').replace(/\s+/g,' ').trim();}
+function isLikelySelfEcho(heard){
+  const h = norm(heard);
+  const r = norm(lastReply).slice(0, 900);
+  if(!h || !r) return false;
+  if(Date.now() < ignoreUntil) return true;
+  if(h.length > 20 && r.includes(h)) return true;
+  const hWords = h.split(' ').filter(w=>w.length>3);
+  if(hWords.length < 5) return false;
+  const overlap = hWords.filter(w=>r.includes(w)).length / hWords.length;
+  return overlap > 0.72;
+}
 
 async function sendText(text){
   text = String(text || '').trim(); if(!text) return;
@@ -143,7 +155,8 @@ async function speakText(text){
   if(wasWakeOn) pauseWake();
   await fetch('/api/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});
   const words = text.split(/\s+/).filter(Boolean).length;
-  const waitMs = Math.min(14000, Math.max(1800, words * 360));
+  const waitMs = Math.min(30000, Math.max(3500, words * 520));
+  ignoreUntil = Date.now() + waitMs + 2500;
   if(wasWakeOn) setTimeout(resumeWake, waitMs);
 }
 async function speakLast(){if(lastReply) await speakText(lastReply);}
@@ -196,6 +209,7 @@ function runWakeLoop(Rec){
 }
 async function handleWakeSpeech(heard){
   if(!heard) return;
+  if(isLikelySelfEcho(heard)) return;
   const clean = heard.trim();
   if(conversationActive){
     if(endPhrases.test(clean)){
@@ -224,7 +238,7 @@ async function handleWakeSpeech(heard){
   await sendText(request);
   setWakeState(true);
 }
-addMsg('jarvis','Desktop JARVIS online. Enable Wake Mode, say "Jarvis", then keep talking. Say "no" or "sleep" to end the conversation.');
+addMsg('jarvis','Desktop JARVIS online. I can work offline for notes, memory, opening PC items, and reminders like "remind me tomorrow at 3pm". Enable Wake Mode, say "Jarvis", then keep talking.');
 loadHealth(); loadDashboard(); setInterval(loadDashboard, 8000); setInterval(loadHealth, 20000);
 </script>
 </body>

@@ -87,8 +87,27 @@ uses that data before asking the online AI. Easy tasks run offline, including:
 - saving notes
 - remembering facts
 - searching local memory
+- creating reminders and calendar entries
 - answering date/time
 - showing the work folder
+- logging missing skills/tools to add later
+
+Reminder examples:
+
+```text
+remind me tomorrow at 3pm to call supplier
+set a reminder today 6:30pm check invoices
+schedule meeting next friday at 10am
+show reminders
+```
+
+If JARVIS cannot do something locally, it can save the request to:
+
+```text
+%USERPROFILE%\Documents\Jarvis Work\brain\missing_skills.json
+```
+
+Those missing-skill items also show in the desktop task list for the coder agent.
 
 Run the desktop app:
 

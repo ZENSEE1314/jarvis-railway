@@ -14,7 +14,7 @@ import sys
 import threading
 import urllib.parse
 import webbrowser
-from datetime import datetime
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -42,6 +42,8 @@ class LocalBrain:
         self.root.mkdir(parents=True, exist_ok=True)
         self.memory_file = self.root / "memory.json"
         self.chat_file = self.root / "chat_history.json"
+        self.reminder_file = self.root / "reminders.json"
+        self.skill_file = self.root / "missing_skills.json"
 
     def _read(self, path: Path, default: Any) -> Any:
         if not path.exists():
@@ -103,6 +105,99 @@ class LocalBrain:
     def recent(self, limit: int = 8) -> list[dict[str, Any]]:
         return self._read(self.memory_file, [])[-limit:]
 
+    def add_reminder(self, title: str, due_at: datetime) -> dict[str, Any]:
+        reminders = self._read(self.reminder_file, [])
+        item = {
+            "id": f"local_reminder_{int(datetime.now().timestamp())}_{len(reminders) + 1}",
+            "title": title.strip(),
+            "description": title.strip(),
+            "agent_id": "scheduler",
+            "status": "pending",
+            "source": "desktop-local",
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+            "updated_at": datetime.now().isoformat(timespec="seconds"),
+            "due_at": due_at.isoformat(timespec="seconds"),
+        }
+        reminders.append(item)
+        self._write(self.reminder_file, reminders[-1000:])
+        self.remember(f"Reminder: {title.strip()} at {item['due_at']}", "reminder")
+        return item
+
+    def reminders(self) -> list[dict[str, Any]]:
+        return self._read(self.reminder_file, [])
+
+    def add_missing_skill(self, request: str, reason: str = "") -> dict[str, Any]:
+        skills = self._read(self.skill_file, [])
+        item = {
+            "id": f"missing_skill_{int(datetime.now().timestamp())}_{len(skills) + 1}",
+            "request": request,
+            "reason": reason or "No local handler is installed yet.",
+            "status": "needed",
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+            "search": f"https://github.com/search?q={urllib.parse.quote(request + ' automation skill')}&type=repositories",
+        }
+        skills.append(item)
+        self._write(self.skill_file, skills[-300:])
+        return item
+
+    def missing_skills(self) -> list[dict[str, Any]]:
+        return self._read(self.skill_file, [])
+
+
+WEEKDAYS = {
+    "monday": 0,
+    "tuesday": 1,
+    "wednesday": 2,
+    "thursday": 3,
+    "friday": 4,
+    "saturday": 5,
+    "sunday": 6,
+}
+
+
+def parse_time(text: str) -> tuple[int, int]:
+    match = re.search(r"\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b", text, re.I)
+    if not match:
+        return 9, 0
+    hour = int(match.group(1))
+    minute = int(match.group(2) or "0")
+    meridiem = (match.group(3) or "").lower()
+    if meridiem == "pm" and hour < 12:
+        hour += 12
+    if meridiem == "am" and hour == 12:
+        hour = 0
+    if not meridiem and hour < 8:
+        hour += 12
+    return max(0, min(hour, 23)), max(0, min(minute, 59))
+
+
+def parse_due_datetime(text: str) -> datetime:
+    now = datetime.now()
+    lowered = text.lower()
+    base = now
+    if "day after tomorrow" in lowered:
+        base = now + timedelta(days=2)
+    elif "tomorrow" in lowered:
+        base = now + timedelta(days=1)
+    elif "next week" in lowered:
+        base = now + timedelta(days=7)
+    else:
+        weekday_match = re.search(r"\bnext\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b", lowered)
+        if weekday_match:
+            target = WEEKDAYS[weekday_match.group(1)]
+            days = (target - now.weekday()) % 7
+            base = now + timedelta(days=days or 7)
+        elif "today" in lowered:
+            base = now
+    date_match = re.search(r"\b(\d{4})-(\d{1,2})-(\d{1,2})\b", lowered)
+    if date_match:
+        base = datetime(int(date_match.group(1)), int(date_match.group(2)), int(date_match.group(3)))
+    hour, minute = parse_time(lowered)
+    due = base.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if due < now and "today" in lowered:
+        due += timedelta(days=1)
+    return due
+
 
 class DesktopState:
     def __init__(self, server_url: str, token: str, work_dir: Path, speak: bool):
@@ -133,6 +228,32 @@ class DesktopState:
             result = self.actions.run_command(note_text)
             self.brain.remember(text, "note")
             return f"Saved the note here: {result}", True
+        if any(phrase in lowered for phrase in ["show reminders", "list reminders", "what reminders", "my reminders"]):
+            reminders = self.brain.reminders()
+            if not reminders:
+                return "You have no local reminders yet.", True
+            lines = [
+                f"- {item['title']} at {datetime.fromisoformat(item['due_at']).strftime('%A, %B %d at %I:%M %p')}"
+                for item in reminders[-10:]
+            ]
+            return "Your local reminders:\n" + "\n".join(lines), True
+        if any(word in lowered for word in ["remind", "reminder", "schedule", "calendar", "appointment", "meeting"]):
+            title = text.strip()
+            title = re.sub(r"^(jarvis\s+)?(please\s+)?", "", title, flags=re.I).strip()
+            title = re.sub(r"^(remind\s+me\s+to|remind\s+me|remind|set\s+a\s+reminder\s+to|set\s+reminder\s+to|set\s+a\s+reminder|set\s+reminder|schedule\s+a\s+meeting|schedule|add\s+a\s+reminder|add\s+reminder)\b", "", title, flags=re.I).strip()
+            title = re.sub(r"^(to|for|about)\b", "", title, flags=re.I).strip()
+            title = re.sub(r"\b(today|tomorrow|day after tomorrow|next week|next monday|next tuesday|next wednesday|next thursday|next friday|next saturday|next sunday)\b", "", title, flags=re.I)
+            title = re.sub(r"\b(at|on)?\s*\d{1,2}(:\d{2})?\s*(am|pm)?\b", "", title, flags=re.I)
+            title = title.strip()
+            title = re.sub(r"^(to|for|about)\b", "", title, flags=re.I)
+            title = re.sub(r"\s+", " ", title).strip(" ,.-") or text
+            due = parse_due_datetime(text)
+            reminder = self.brain.add_reminder(title, due)
+            try:
+                self.api.create_task(title, "scheduler")
+            except Exception:
+                pass
+            return f"Reminder set for {due.strftime('%A, %B %d at %I:%M %p')}: {reminder['title']}", True
         remember_match = re.match(r"^(remember|remember that)\s+(.+)$", text, flags=re.I)
         if remember_match:
             memory = remember_match.group(2).strip()
@@ -145,7 +266,45 @@ class DesktopState:
                 return "I do not have matching local memory yet.", True
             lines = [f"- {item['text']} ({item.get('updated_at', '')})" for item in matches]
             return "Here is what I found in my local brain:\n" + "\n".join(lines), True
+        if any(phrase in lowered for phrase in ["find skill", "install skill", "add skill", "get skill", "find tool", "install tool", "add tool"]):
+            skill = self.brain.add_missing_skill(text, "User asked JARVIS to find or add a capability.")
+            return (
+                "I logged this as a missing skill to add next.\n"
+                f"Request: {skill['request']}\n"
+                f"GitHub search: {skill['search']}"
+            ), True
         return "", False
+
+    def dashboard(self) -> dict[str, Any]:
+        remote = self.api.request("GET", "/api/dashboard")
+        if not isinstance(remote, dict) or remote.get("error"):
+            remote = {"agents": [], "tasks": [], "memory": [], "logs": [], "connectors": [], "counts": {}}
+        reminders = self.brain.reminders()
+        missing_skills = self.brain.missing_skills()
+        tasks = list(remote.get("tasks", [])) + reminders + [
+            {
+                "id": item["id"],
+                "title": f"Install skill: {item['request'][:70]}",
+                "description": item["reason"],
+                "agent_id": "coder",
+                "status": item["status"],
+                "created_at": item["created_at"],
+                "updated_at": item["created_at"],
+                "due_at": item["created_at"],
+                "source": "desktop-local",
+            }
+            for item in missing_skills
+        ]
+        remote["tasks"] = tasks
+        remote["local_reminders"] = reminders
+        remote["missing_skills"] = missing_skills
+        remote["counts"] = {
+            "pending": sum(1 for task in tasks if task.get("status") in {"pending", "needed"}),
+            "running": sum(1 for task in tasks if task.get("status") == "running"),
+            "done": sum(1 for task in tasks if task.get("status") == "done"),
+            "error": sum(1 for task in tasks if task.get("status") == "error"),
+        }
+        return remote
 
     def start_polling(self, interval: int = 20) -> None:
         if self.polling:
@@ -198,7 +357,7 @@ class DesktopHandler(BaseHTTPRequestHandler):
             response(self, 200, DESKTOP_HTML.read_text(encoding="utf-8"), "text/html; charset=utf-8")
             return
         if parsed.path == "/api/dashboard":
-            response(self, 200, self.state.api.request("GET", "/api/dashboard"))
+            response(self, 200, self.state.dashboard())
             return
         if parsed.path == "/api/health":
             response(self, 200, self.state.api.request("GET", "/health"))
