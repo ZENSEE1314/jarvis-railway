@@ -75,6 +75,30 @@ Run interactive PC JARVIS:
 .\run_pc_jarvis.ps1
 ```
 
+Or double-click:
+
+```text
+run_pc_jarvis.bat
+```
+
+Build a Windows `.exe`:
+
+```powershell
+.\build_pc_jarvis_exe.ps1
+```
+
+Or double-click:
+
+```text
+build_pc_jarvis_exe.bat
+```
+
+The executable will be created at:
+
+```text
+dist\PC-JARVIS\PC-JARVIS.exe
+```
+
 The interactive launcher speaks replies with Windows text-to-speech. Type
 `listen` for microphone input after installing optional voice packages:
 
