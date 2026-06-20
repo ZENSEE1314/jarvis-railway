@@ -32,7 +32,7 @@ log = logging.getLogger("jarvis")
 
 # ---- Config ----
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "kimi-k2.7-code:cloud")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:0.5b")
 GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
 USER_NAME = os.getenv("JARVIS_USER_NAME", "Sir")
 PORT = int(os.getenv("PORT", "7777"))

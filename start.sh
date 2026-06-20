@@ -2,7 +2,7 @@
 set -e
 
 echo "=== J.A.R.V.I.S. Railway Deployment ==="
-OLLAMA_MODEL="${OLLAMA_MODEL:-kimi-k2.7-code:cloud}"
+OLLAMA_MODEL="${OLLAMA_MODEL:-qwen2.5:0.5b}"
 export OLLAMA_URL="${OLLAMA_URL:-http://localhost:11434}"
 
 # Start Ollama in background

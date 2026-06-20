@@ -61,7 +61,7 @@ textarea:focus{border-color:var(--cyan)}button{border:1px solid #1a4968;backgrou
 <script>
 const chat = document.getElementById('chat');
 const input = document.getElementById('input');
-let dashboard = null, lastReply = '', wakeOn = false, conversationActive = false, wakeRecognition = null, wakeRestart = null;
+let dashboard = null, lastReply = '', wakeOn = false, conversationActive = false, wakeRecognition = null, wakeRestart = null, wakePaused = false;
 const endPhrases = /^(no|no thanks|nothing else|that's all|that is all|done|stop|sleep|go sleep|stand down|bye|goodbye)$/i;
 
 function addMsg(role, text){
@@ -79,15 +79,15 @@ async function sendText(text){
   addMsg('user', text); addMsg('jarvis', 'Thinking...');
   const thinking = chat.lastChild;
   try{
-    const r = await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,speak:true})});
+    const r = await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});
     const data = await r.json();
     let reply = data.response || data.error || 'No response';
     if(conversationActive && !data.error){
       reply += '\n\nAnything else you want me to add or do? Say "no" when finished.';
-      await fetch('/api/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:'Anything else you want me to add or do? Say no when finished.'})});
     }
     thinking.innerHTML = '<div class="tag">J.A.R.V.I.S.</div>' + esc(reply);
     lastReply = reply;
+    await speakText(reply);
     await loadDashboard();
   }catch(e){thinking.innerHTML = '<div class="tag">J.A.R.V.I.S.</div>Error: '+esc(e.message);}
 }
@@ -124,7 +124,29 @@ function renderCalendar(tasks){
 async function pollOnce(){await fetch('/api/poll/once',{method:'POST'}); await loadDashboard();}
 async function startWorker(){await fetch('/api/poll/start',{method:'POST'}); addMsg('jarvis','Auto worker started. I will keep checking Railway tasks from this PC.');}
 async function stopWorker(){await fetch('/api/poll/stop',{method:'POST'}); addMsg('jarvis','Auto worker stopped.');}
-async function speakLast(){if(lastReply) await fetch('/api/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:lastReply})});}
+function pauseWake(){
+  wakePaused = true;
+  clearTimeout(wakeRestart);
+  if(wakeRecognition){ try{ wakeRecognition.onend = null; wakeRecognition.stop(); }catch(e){} }
+}
+function resumeWake(){
+  wakePaused = false;
+  if(wakeOn){
+    const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if(Rec) runWakeLoop(Rec);
+  }
+}
+async function speakText(text){
+  text = String(text || '').trim();
+  if(!text) return;
+  const wasWakeOn = wakeOn;
+  if(wasWakeOn) pauseWake();
+  await fetch('/api/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});
+  const words = text.split(/\s+/).filter(Boolean).length;
+  const waitMs = Math.min(14000, Math.max(1800, words * 360));
+  if(wasWakeOn) setTimeout(resumeWake, waitMs);
+}
+async function speakLast(){if(lastReply) await speakText(lastReply);}
 function listen(){
   const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
   if(!Rec){addMsg('jarvis','Browser voice input is not supported here. Try Chrome or Edge.'); return;}
@@ -157,7 +179,7 @@ function stopWake(){
   wakeRecognition = null;
 }
 function runWakeLoop(Rec){
-  if(!wakeOn) return;
+  if(!wakeOn || wakePaused) return;
   wakeRecognition = new Rec();
   wakeRecognition.lang = 'en-US';
   wakeRecognition.continuous = false;
@@ -168,7 +190,7 @@ function runWakeLoop(Rec){
   };
   wakeRecognition.onerror = () => {};
   wakeRecognition.onend = () => {
-    if(wakeOn) wakeRestart = setTimeout(() => runWakeLoop(Rec), 350);
+    if(wakeOn && !wakePaused) wakeRestart = setTimeout(() => runWakeLoop(Rec), 350);
   };
   try{ wakeRecognition.start(); }catch(e){}
 }
@@ -181,7 +203,7 @@ async function handleWakeSpeech(heard){
       setWakeState(true);
       const closing = 'Understood. I will stand by until you call Jarvis again.';
       addMsg('jarvis', closing);
-      await fetch('/api/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:closing})});
+      await speakText(closing);
       return;
     }
     await sendText(clean);
@@ -195,8 +217,8 @@ async function handleWakeSpeech(heard){
   const request = match[1].trim();
   if(!request){
     const ready = 'Yes Sir, I am listening. What would you like me to do?';
-    await fetch('/api/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:ready})});
     addMsg('jarvis',ready);
+    await speakText(ready);
     return;
   }
   await sendText(request);

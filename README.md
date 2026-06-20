@@ -21,13 +21,17 @@ Open `http://localhost:7777`.
 
 ## Ollama Codex Model
 
-Default Ollama model:
+Default Railway Ollama model:
 
 ```bash
-kimi-k2.7-code:cloud
+qwen2.5:0.5b
 ```
 
-Launch Codex with the same Ollama cloud model:
+This local model runs inside Railway without Ollama Cloud login. If you want to
+use the Kimi cloud model, the Railway container must be authenticated with
+Ollama Cloud first; otherwise Ollama returns `401 Unauthorized`.
+
+Launch Codex locally with Kimi if your PC Ollama is logged in:
 
 ```bash
 ollama launch codex --model kimi-k2.7-code:cloud
