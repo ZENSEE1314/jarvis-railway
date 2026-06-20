@@ -116,6 +116,17 @@ Show me what tasks are pending
 The microphone button uses browser speech recognition when available. The
 speaker button repeats the last response with Windows text-to-speech.
 
+Click `Wake Mode` to enable online listening mode. When it is on, say:
+
+```text
+Jarvis open my work folder
+Jarvis what tasks are pending
+Jarvis write a social post for my app
+```
+
+If you only say `Jarvis`, it answers that it is listening. Wake Mode sends
+speech only after it hears the wake word `Jarvis`.
+
 ## PC JARVIS Worker
 
 The older console worker is still available if you want a lightweight terminal
