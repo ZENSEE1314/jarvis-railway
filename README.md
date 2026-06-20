@@ -58,10 +58,11 @@ The first run creates these agents in `JARVIS_DATA_DIR`:
 - Scheduler: dates, deadlines, reminders, meetings.
 - Accountant: bills, invoices, budgets, money tracking.
 
-## PC JARVIS Worker
+## Desktop JARVIS
 
-Railway is the online brain/dashboard. The PC worker is the local hands that
-can run on your Windows computer and report back to Railway.
+Railway is the online brain/dashboard. Desktop JARVIS is the normal PC screen:
+chat in the center, agents and task counts on the left, calendar/tasks/logs on
+the right, plus local PC actions.
 
 Work is saved by default to:
 
@@ -69,16 +70,16 @@ Work is saved by default to:
 %USERPROFILE%\Documents\Jarvis Work
 ```
 
-Run interactive PC JARVIS:
+Run the desktop app:
 
 ```powershell
-.\run_pc_jarvis.ps1
+.\run_desktop_jarvis.ps1
 ```
 
 Or double-click:
 
 ```text
-run_pc_jarvis.bat
+run_desktop_jarvis.bat
 ```
 
 Build a Windows `.exe`:
@@ -96,7 +97,40 @@ build_pc_jarvis_exe.bat
 The executable will be created at:
 
 ```text
-dist\PC-JARVIS\PC-JARVIS.exe
+dist\Desktop-JARVIS\Desktop-JARVIS.exe
+```
+
+Keep `Desktop-JARVIS.exe` together with its `_internal` folder.
+
+Desktop chat works like a normal AI chat. You do not need command prefixes.
+Examples:
+
+```text
+Open my work folder
+Write a social post for my new app
+Schedule a meeting tomorrow at 3pm
+Fix the website bug
+Show me what tasks are pending
+```
+
+The microphone button uses browser speech recognition when available. The
+speaker button repeats the last response with Windows text-to-speech.
+
+## PC JARVIS Worker
+
+The older console worker is still available if you want a lightweight terminal
+mode.
+
+Run interactive console PC JARVIS:
+
+```powershell
+.\run_pc_jarvis.ps1
+```
+
+Or double-click:
+
+```text
+run_pc_jarvis.bat
 ```
 
 The interactive launcher speaks replies with Windows text-to-speech. Type

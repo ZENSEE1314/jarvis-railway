@@ -2,7 +2,7 @@ $ErrorActionPreference = "Stop"
 
 Set-Location -LiteralPath $PSScriptRoot
 
-Write-Host "Building PC-JARVIS.exe..."
+Write-Host "Building Desktop-JARVIS.exe..."
 
 $pythonExe = (Get-Command python -ErrorAction SilentlyContinue).Source
 if (Get-Command py -ErrorAction SilentlyContinue) {
@@ -51,14 +51,15 @@ Invoke-BuildPython -m pip install pyinstaller
 Invoke-BuildPython -m PyInstaller `
   --noconfirm `
   --clean `
-  --name "PC-JARVIS" `
+  --name "Desktop-JARVIS" `
   --console `
-  pc_jarvis.py
+  --add-data "desktop.html;." `
+  desktop_jarvis.py
 
-if (-not (Test-Path "$PSScriptRoot\dist\PC-JARVIS\PC-JARVIS.exe")) {
-  throw "Build finished but PC-JARVIS.exe was not found."
+if (-not (Test-Path "$PSScriptRoot\dist\Desktop-JARVIS\Desktop-JARVIS.exe")) {
+  throw "Build finished but Desktop-JARVIS.exe was not found."
 }
 
 Write-Host ""
 Write-Host "Done. EXE created at:"
-Write-Host "$PSScriptRoot\dist\PC-JARVIS\PC-JARVIS.exe"
+Write-Host "$PSScriptRoot\dist\Desktop-JARVIS\Desktop-JARVIS.exe"
