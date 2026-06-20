@@ -61,7 +61,8 @@ textarea:focus{border-color:var(--cyan)}button{border:1px solid #1a4968;backgrou
 <script>
 const chat = document.getElementById('chat');
 const input = document.getElementById('input');
-let dashboard = null, lastReply = '', wakeOn = false, wakeRecognition = null, wakeRestart = null;
+let dashboard = null, lastReply = '', wakeOn = false, conversationActive = false, wakeRecognition = null, wakeRestart = null;
+const endPhrases = /^(no|no thanks|nothing else|that's all|that is all|done|stop|sleep|go sleep|stand down|bye|goodbye)$/i;
 
 function addMsg(role, text){
   const div = document.createElement('div');
@@ -79,8 +80,14 @@ async function sendText(text){
   const thinking = chat.lastChild;
   try{
     const r = await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,speak:true})});
-    const data = await r.json(); thinking.innerHTML = '<div class="tag">J.A.R.V.I.S.</div>' + esc(data.response || data.error || 'No response');
-    lastReply = data.response || '';
+    const data = await r.json();
+    let reply = data.response || data.error || 'No response';
+    if(conversationActive && !data.error){
+      reply += '\n\nAnything else you want me to add or do? Say "no" when finished.';
+      await fetch('/api/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:'Anything else you want me to add or do? Say no when finished.'})});
+    }
+    thinking.innerHTML = '<div class="tag">J.A.R.V.I.S.</div>' + esc(reply);
+    lastReply = reply;
     await loadDashboard();
   }catch(e){thinking.innerHTML = '<div class="tag">J.A.R.V.I.S.</div>Error: '+esc(e.message);}
 }
@@ -125,8 +132,9 @@ function listen(){
 }
 function setWakeState(on, note){
   wakeOn = on;
+  const label = !on ? 'off' : conversationActive ? 'active' : 'listening';
   wakeState.className = 'wake ' + (on ? 'on' : 'off');
-  wakeState.innerHTML = ' | Wake <b>' + (on ? 'listening' : 'off') + '</b>';
+  wakeState.innerHTML = ' | Wake <b>' + label + '</b>';
   core.classList.toggle('listening', on);
   if(note) addMsg('jarvis', note);
 }
@@ -137,10 +145,12 @@ function toggleWake(){
 function startWake(){
   const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
   if(!Rec){addMsg('jarvis','Wake mode needs Chrome or Edge speech recognition.'); return;}
-  setWakeState(true, 'Online mode enabled. Say "Jarvis" followed by your request.');
+  conversationActive = false;
+  setWakeState(true, 'Online mode enabled. Say "Jarvis" to wake me, then keep talking. Say "no" or "sleep" when finished.');
   runWakeLoop(Rec);
 }
 function stopWake(){
+  conversationActive = false;
   setWakeState(false, 'Online mode disabled.');
   clearTimeout(wakeRestart);
   if(wakeRecognition) wakeRecognition.stop();
@@ -164,17 +174,35 @@ function runWakeLoop(Rec){
 }
 async function handleWakeSpeech(heard){
   if(!heard) return;
-  const match = heard.match(/\bjarvis\b[\s,.:;-]*(.*)$/i);
+  const clean = heard.trim();
+  if(conversationActive){
+    if(endPhrases.test(clean)){
+      conversationActive = false;
+      setWakeState(true);
+      const closing = 'Understood. I will stand by until you call Jarvis again.';
+      addMsg('jarvis', closing);
+      await fetch('/api/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:closing})});
+      return;
+    }
+    await sendText(clean);
+    setWakeState(true);
+    return;
+  }
+  const match = clean.match(/\bjarvis\b[\s,.:;-]*(.*)$/i);
   if(!match) return;
+  conversationActive = true;
+  setWakeState(true);
   const request = match[1].trim();
   if(!request){
-    await fetch('/api/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:'Yes Sir, I am listening.'})});
-    addMsg('jarvis','Yes Sir, I am listening.');
+    const ready = 'Yes Sir, I am listening. What would you like me to do?';
+    await fetch('/api/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:ready})});
+    addMsg('jarvis',ready);
     return;
   }
   await sendText(request);
+  setWakeState(true);
 }
-addMsg('jarvis','Desktop JARVIS online. Type normally, use MIC once, or enable Wake Mode and say "Jarvis".');
+addMsg('jarvis','Desktop JARVIS online. Enable Wake Mode, say "Jarvis", then keep talking. Say "no" or "sleep" to end the conversation.');
 loadHealth(); loadDashboard(); setInterval(loadDashboard, 8000); setInterval(loadHealth, 20000);
 </script>
 </body>

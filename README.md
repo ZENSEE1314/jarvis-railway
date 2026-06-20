@@ -116,16 +116,23 @@ Show me what tasks are pending
 The microphone button uses browser speech recognition when available. The
 speaker button repeats the last response with Windows text-to-speech.
 
-Click `Wake Mode` to enable online listening mode. When it is on, say:
+Click `Wake Mode` to enable online listening mode. When it is on, say `Jarvis`
+to start a conversation. After that, keep talking normally. JARVIS keeps
+listening for your next answer or instruction.
 
 ```text
+Jarvis
 Jarvis open my work folder
-Jarvis what tasks are pending
-Jarvis write a social post for my app
+what tasks are pending
+write a social post for my app
+add a reminder tomorrow
+no
 ```
 
-If you only say `Jarvis`, it answers that it is listening. Wake Mode sends
-speech only after it hears the wake word `Jarvis`.
+If you only say `Jarvis`, it answers that it is listening and waits for your
+next sentence. After each request it asks if you want anything else. Say `no`,
+`that's all`, `done`, `stop`, or `sleep` to end the conversation until you call
+`Jarvis` again.
 
 ## PC JARVIS Worker
 
