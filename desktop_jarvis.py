@@ -19,6 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from mark_tools import handle_mark_tool
 from pc_jarvis import DEFAULT_SERVER, DEFAULT_WORK_DIR, JarvisApi, PcActions, poll_once
 
 
@@ -212,6 +213,19 @@ class DesktopState:
         lowered = text.lower().strip()
         self.brain.remember(text, "user")
 
+        if any(phrase in lowered for phrase in ["find skill", "install skill", "add skill", "get skill", "find tool", "install tool", "add tool"]):
+            skill = self.brain.add_missing_skill(text, "User asked JARVIS to find or add a capability.")
+            return (
+                "I logged this as a missing skill to add next.\n"
+                f"Request: {skill['request']}\n"
+                f"GitHub search: {skill['search']}"
+            ), True
+
+        mark_reply, mark_handled = handle_mark_tool(text)
+        if mark_handled:
+            self.brain.remember(f"Mark tool result for '{text}': {mark_reply}", "mark_tool")
+            return mark_reply, True
+
         if lowered in {"hi", "hello", "hey", "jarvis"}:
             return "Yes Sir. I am here, listening from your PC.", True
         if lowered in {"time", "what time is it", "what is the time"}:
@@ -266,13 +280,6 @@ class DesktopState:
                 return "I do not have matching local memory yet.", True
             lines = [f"- {item['text']} ({item.get('updated_at', '')})" for item in matches]
             return "Here is what I found in my local brain:\n" + "\n".join(lines), True
-        if any(phrase in lowered for phrase in ["find skill", "install skill", "add skill", "get skill", "find tool", "install tool", "add tool"]):
-            skill = self.brain.add_missing_skill(text, "User asked JARVIS to find or add a capability.")
-            return (
-                "I logged this as a missing skill to add next.\n"
-                f"Request: {skill['request']}\n"
-                f"GitHub search: {skill['search']}"
-            ), True
         return "", False
 
     def dashboard(self) -> dict[str, Any]:

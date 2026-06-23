@@ -9,6 +9,15 @@ Mobile-first J.A.R.V.I.S. server for Railway with:
 - task dashboard with pending, running, done, and error states
 - logs for task creation, routing, and updates
 - MCP connector metadata for future OAuth/API integrations
+- Mark-XXXIX-OR-inspired local desktop tools for offline PC actions
+
+## Mark-XXXIX-OR Integration
+
+This project now uses ideas from `FatihMakes/Mark-XXXIX-OR` for the local
+desktop action layer: app launching, file handling, desktop organization,
+reminders, memory, and missing-skill logging. The code is adapted into this repo
+as lightweight standard-library handlers, so Desktop JARVIS can do easy PC tasks
+offline before asking online AI.
 
 ## Run locally
 
@@ -84,6 +93,13 @@ It stores local memory and chat history there, merges repeated memories, and
 uses that data before asking the online AI. Easy tasks run offline, including:
 
 - opening apps, folders, files, and URLs
+- listing Desktop, Downloads, and Documents
+- finding files by name
+- reading text files
+- creating folders
+- writing simple text to files
+- organizing Desktop by file type
+- checking disk/storage usage
 - saving notes
 - remembering facts
 - searching local memory
